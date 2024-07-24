@@ -1,5 +1,5 @@
 
-# Guide to Solving the Tanker Assignment Challenge with Linear Programming
+# Guide to Solving the Tanker Assignment Challenge with Linear Programming - Simple version
 
 In this blog, we'll explore how to solve a complex tanker assignment problem using linear programming in Python. Our goal is to optimally assign tankers to segments within berths at a port, ensuring that the total capacity of assigned segments closely matches the tanker's capacity without significant over-assignment. We'll use the PuLP library, a popular linear programming package in Python, to model and solve this problem.
 
@@ -62,6 +62,13 @@ Assignment Status Variables (is_assigned): These binary variables track whether 
 ```python
 # Decision variable for whether a tanker is assigned
 is_assigned = LpVariable.dicts("is_assigned", tankers, lowBound=0, upBound=1, cat='Binary')
+```
+Assigment Status Variables  (tanker_berth_assigned) : binary variables track where a tanker is assigned to any berth
+```python
+#  decision variable for specific tanker is assigned to a specific berth
+tanker_berth_assigned = LpVariable.dicts("tanker_berth_assigned", 
+                                         (tankers, berths), 
+                                         cat='Binary')
 ```
 Example
 - if we assign tanker1 into berth1 with segment1
@@ -126,15 +133,65 @@ lpSum([weight_unassigned_tankers * (1 - is_assigned[tanker]) for tanker in tanke
 
 We add several constraints to our model:
 
-- **Tanker Assignment**: Ensure each tanker is assigned to exactly one set of contiguous segments within a single berth.
-- **Segment Capacity**: No more than one tanker per segment and the tanker's capacity should not exceed the total capacity of assigned segments.
-- **Optimal Segment Assignment**: Ensure the total capacity of assigned segments does not exceed the tanker's capacity by more than a predefined threshold.
+- **Total Capacity Constraint**: Ensures that the total capacity of the segments assigned to a tanker does not exceed the tanker's capacity by more than a predefined threshold (e.g., 10%). This is achieved by setting a minimum and maximum capacity limit for each tanker based on its capacity and the allowable over-capacity threshold.
+
+- **Assignment Linking Constraint:** Directly links the assign variables to the is_assigned variables for each tanker, ensuring that a segment can only be assigned to a tanker if the tanker is marked as assigned. Additionally, it links the assignment of a tanker to a berth with the assignment of the tanker to a segment within that berth.
+
+- **Single Berth Assignment Constrain**t: Ensures that each tanker is assigned to no more than one berth.
+
+- **Unique Segment Assignment Constraint**: Ensures that no more than one tanker is assigned to each segment.
+
+- **Priority Assignment Constraint**: Ensures that segments are assigned in order of priority, with lower priority segments (higher priority number) only being assigned if all higher priority segments (lower priority number) are already assigned. This is based on the assumption that segments within each berth are pre-ordered from lower to higher priority.
+
+
 
 ```python
-# Constraints
-# Example constraint: Each tanker is assigned to exactly one set of contiguous segments within a single berth
+     
+# Constraint 1 :  Add constraints to ensure the total capacity of assigned segments does not exceed the tanker's capacity by more than the threshold
+ 
+# Define a small allowable over-capacity threshold (e.g., 10% of the tanker's capacity)
+over_capacity_threshold = 0.1
 for tanker in tankers:
-    prob += lpSum([assign[tanker][berth][seg] for berth in berths for seg in segments[berth]]) == 1
+    tanker_capacity = tanker_capacities[tanker]
+    allowable_capacity = tanker_capacity + (tanker_capacity * over_capacity_threshold)
+    prob += lpSum(assign[tanker][berth][seg]* segment_capacities for berth in berths for seg in segments[berth] ) >=is_assigned[tanker]* tanker_capacities[tanker]
+    prob += lpSum(assign[tanker][berth][seg] * segment_capacities for berth in berths for seg in segments[berth]) <= allowable_capacity
+    
+   
+ # Constraint Directly link assign variables to is_assigned for each tanker
+for tanker in tankers:
+    for berth in berths:
+        for seg in segments[berth]:
+            # Ensure assign[tanker][berth][seg] can only be 1 if is_assigned[tanker] is 1
+            prob += assign[tanker][berth][seg] <= is_assigned[tanker]
+             # Linking tanker-berth assignment to segment assignment
+            prob += assign[tanker][berth][seg] <= tanker_berth_assigned[tanker][berth]
+#Constraint 2:  Constraint to ensure a tanker is assigned to within one berth
+for tanker in tankers:
+    prob += lpSum(tanker_berth_assigned[tanker][berth] for berth in berths) <= 1
+# Constraint 3 : No more than one tanker per segment
+for berth in berths:
+    for seg in segments[berth]:
+        prob += lpSum([assign[tanker][berth][seg] for tanker in tankers]) <= 1
+
+#Constraint 4:  Add constraints to ensure the segments are assigned in order of priority
+# Assuming segments are already ordered from lower to higher within each berth
+segment_priorities = {berth: {seg: idx for idx, seg in enumerate(segments[berth])} for berth in berths}
+
+# Step 2: Add priority constraints
+for tanker in tankers:
+    for berth in berths:
+        for seg in segments[berth]:
+            # Get the priority of the current segment
+            current_priority = segment_priorities[berth][seg]
+            # For each segment with a lower priority (higher priority number), ensure it's assigned if the current one is
+            for lower_seg in segments[berth]:
+                if segment_priorities[berth][lower_seg] < current_priority:
+                    # Ensure lower segments are assigned before the current segment
+                    prob += lpSum(assign[other_tanker][berth][lower_seg] for other_tanker in tankers) >= assign[tanker][berth][seg]
+
+
+
 ```
 
 ## Step 6: Solving the Problem

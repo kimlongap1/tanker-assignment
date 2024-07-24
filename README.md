@@ -50,20 +50,40 @@ segment_capacities = 100  # Default capacity for each segment
 ```
 
 ## Step 3: Creating Decision Variables
-
+Decision variables are used in linear programming to represent the choices we need to make in order to solve our optimization problem
 We create binary decision variables for assigning tankers to segments and an additional binary variable to track if a tanker is assigned.
 
+Assignment Variables (assign): These binary variables indicate whether a particular tanker is assigned to a specific segment within a berth.
 ```python
 # Decision variables for assignment
 assign = LpVariable.dicts("assign", (tankers, berths, sum(segments.values(), [])), cat='Binary')
+
+Assignment Status Variables (is_assigned): These binary variables track whether a tanker is assigned to any segment within any berth.
+```python
 # Decision variable for whether a tanker is assigned
 is_assigned = LpVariable.dicts("is_assigned", tankers, lowBound=0, upBound=1, cat='Binary')
 ```
 Example
-- if we assign tanker1 into berth1 with segment1 so assign[tanker1][berth1][segment1] = 1
-- if we do not assign tanker2 into berth1 with segment1 so assign[tanker2][berth1][segment1] = 0
-- if we assign tanker1 into berth1 with segment1,segment2 so assign[tanker1][berth1][segment1] = 1, assign[tanker1][berth1][segment2] =1
-- if tanker1 is assigned ,is_assigned[tanker1]=1 , otherwise is_assigned[tanker1] = 0 
+- if we assign tanker1 into berth1 with segment1
+   ```python
+   assign["Tanker1"]["Berth1"]["Segment1"] = 1
+   ```
+- if we do not assign tanker2 into berth1 with segment1
+  ```
+   assign[tanker2][berth1][segment1] = 0
+  ```
+- if we assign tanker1 into berth1 with segment1,segment2
+  ```
+   assign[tanker1][berth1][segment1] = 1
+   assign[tanker1][berth1][segment2] =1
+  ```
+- if tanker1 is assigned to any segment
+```is_assigned[tanker1]=1
+```
+If tanker1 is not assigned to any segment
+```
+is_assigned[tanker1] = 0 
+```
 
 ## Step 4: Formulating the Objective Function
 
@@ -85,15 +105,23 @@ prob += (lpSum([-weight_capacity_assigned * assign[tanker][berth][seg] * tanker_
 
 - weight_capacity_assigned = 1: This weight is applied to the total capacity assigned to the tankers. It indicates the relative importance of maximizing the total capacity assigned in the objective function. A higher weight means that assigning as much capacity as possible is a priority.
 - weight_unassigned_tankers = 0.001: This smaller weight is for minimizing the number of unassigned tankers. The small value (0.001) compared to the weight for capacity assigned (1) ensures that the primary focus is on maximizing capacity, while still considering the minimization of unassigned tankers as a secondary goal
-# Objective function: The objective function is a combination of two parts:
+### The objective function is a combination of two parts:
 - Maximizing total capacity assigned:
-```
+```python
   lpSum([-weight_capacity_assigned * assign[tanker][berth][seg] * tanker_capacities[tanker] 
                  for tanker in tankers 
                  for berth in berths 
                  for seg in segments[berth]])
+```
+The decision variable assign[tanker][berth][seg] indicates whether a tanker is assigned to a specific segment in a berth. Multiplying by the tanker capacities and summing these products aims to **maximize the total capacity assigned**
+The use of negative values is a common technique in optimization to turn a maximization problem into a minimization problem because the **solver is set to minimize the objective function.**
+- Minimizing number of unassigned tankers:
+```python
+lpSum([weight_unassigned_tankers * (1 - is_assigned[tanker]) for tanker in tankers])
+```
+  This part sums up the product of the weight weight_unassigned_tankers and (1 - is_assigned[tanker]) for all tankers. The decision variable is_assigned[tanker] indicates whether a tanker is assigned (1) or not (0). Subtracting it from 1 and multiplying by the small weight prioritizes minimizing the number of unassigned tankers, but with much less importance than maximizing the total capacity assigned.
 
-- 
+
 ## Step 5: Adding Constraints
 
 We add several constraints to our model:

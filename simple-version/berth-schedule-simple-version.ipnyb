@@ -1,0 +1,111 @@
+from pulp import *
+import pandas as pd
+import numpy as np
+
+# Define problem
+prob = LpProblem("TankerAssignment", LpMinimize)
+
+# Data
+tankers = ["Tanker1","Tanker2","Tanker3","Tanker4","Tanker5" ,"Tanker6","Tanker7","Tanker8","Tanker9","Tanker10"]
+tanker_capacities = {"Tanker1": 200000, "Tanker2": 200, "Tanker3": 100, "Tanker4": 100,"Tanker5":100,"Tanker6":100,"Tanker7":100,"Tanker8":100,"Tanker9":100,"Tanker10":100}  # Tanker capacities
+berths = ["Berth1", "Berth2"]
+segments = {"Berth1": ["Segment1", "Segment2"],
+            "Berth2": ["Segment1", "Segment2", "Segment3"]}
+segment_capacities = 100  # Default capacity for each segment
+
+# Decision variables for assignment
+assign = LpVariable.dicts("assign", 
+                          (tankers, berths, sum(segments.values(), [])), 
+                          cat='Binary')
+# Decision variable for whether a tanker is assigned
+is_assigned = LpVariable.dicts("is_assigned", tankers, lowBound=0, upBound=10, cat='Binary')
+
+#  decision variable for specific tanker is assigned to a specific berth
+tanker_berth_assigned = LpVariable.dicts("tanker_berth_assigned", 
+                                         (tankers, berths), 
+                                         cat='Binary')
+
+
+
+# Weights for the objective components
+weight_capacity_assigned = 1  # Weight for the total capacity assigned
+weight_unassigned_tankers = 0.001  # Smaller weight for minimizing unassigned tankers, ensuring capacity has higher priority
+
+
+# # New objective: Minimize negative of total capacity assigned (to maximize it) and minimize number of unassigned tankers
+prob += (lpSum([-weight_capacity_assigned * assign[tanker][berth][seg] * tanker_capacities[tanker] 
+                 for tanker in tankers 
+                 for berth in berths 
+                 for seg in segments[berth]]) 
+         + lpSum([weight_unassigned_tankers * (1 - is_assigned[tanker]) for tanker in tankers]))
+
+     
+# Constraint 1 :  Add constraints to ensure the total capacity of assigned segments does not exceed the tanker's capacity by more than the threshold
+ 
+# Define a small allowable over-capacity threshold (e.g., 10% of the tanker's capacity)
+over_capacity_threshold = 0.1
+for tanker in tankers:
+    tanker_capacity = tanker_capacities[tanker]
+    allowable_capacity = tanker_capacity + (tanker_capacity * over_capacity_threshold)
+    prob += lpSum(assign[tanker][berth][seg]* segment_capacities for berth in berths for seg in segments[berth] ) >=is_assigned[tanker]* tanker_capacities[tanker]
+    prob += lpSum(assign[tanker][berth][seg] * segment_capacities for berth in berths for seg in segments[berth]) <= allowable_capacity
+    
+   
+ # Constraint Directly link assign variables to is_assigned for each tanker
+for tanker in tankers:
+    for berth in berths:
+        for seg in segments[berth]:
+            # Ensure assign[tanker][berth][seg] can only be 1 if is_assigned[tanker] is 1
+            prob += assign[tanker][berth][seg] <= is_assigned[tanker]
+             # Linking tanker-berth assignment to segment assignment
+            prob += assign[tanker][berth][seg] <= tanker_berth_assigned[tanker][berth]
+#Constraint 2:  Constraint to ensure a tanker is assigned to within one berth
+for tanker in tankers:
+    prob += lpSum(tanker_berth_assigned[tanker][berth] for berth in berths) <= 1
+# Constraint 3 : No more than one tanker per segment
+for berth in berths:
+    for seg in segments[berth]:
+        prob += lpSum([assign[tanker][berth][seg] for tanker in tankers]) <= 1
+
+#Constraint 4:  Add constraints to ensure the segments are assigned in order of priority
+# Assuming segments are already ordered from lower to higher within each berth
+segment_priorities = {berth: {seg: idx for idx, seg in enumerate(segments[berth])} for berth in berths}
+
+# Step 2: Add priority constraints
+for tanker in tankers:
+    for berth in berths:
+        for seg in segments[berth]:
+            # Get the priority of the current segment
+            current_priority = segment_priorities[berth][seg]
+            # For each segment with a lower priority (higher priority number), ensure it's assigned if the current one is
+            for lower_seg in segments[berth]:
+                if segment_priorities[berth][lower_seg] < current_priority:
+                    # Ensure lower segments are assigned before the current segment
+                    prob += lpSum(assign[other_tanker][berth][lower_seg] for other_tanker in tankers) >= assign[tanker][berth][seg]
+
+
+
+
+# Solve the problem
+prob.solve()
+
+# Print the status of the solution
+print("Status:", LpStatus[prob.status])
+print("is_assigned:", is_assigned)
+# Print the assigned segments for each tanker
+for v in prob.variables():
+    if v.varValue == 1:
+        print(v.name, " asign =", v.varValue)
+
+# Print the results
+assignments = []
+for tanker in tankers:
+    for berth in berths:
+        for seg in segments[berth]:
+            if value(assign[tanker][berth][seg]) == 1:
+                assignments.append((tanker, berth, seg))
+
+assignment_df = pd.DataFrame(assignments, columns=['Tanker', 'Berth', 'Segment'])
+print("\nAssignments:")
+print(assignment_df)
+print("Total Optimized Value:", value(prob.objective))

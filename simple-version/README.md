@@ -224,6 +224,17 @@ print("\nAssignments:")
 print(assignment_df)
 ```
 
+Output 
+```
+Assignments:
+     Tanker   Berth   Segment
+0   Tanker2  Berth2  Segment2
+1   Tanker2  Berth2  Segment3
+2   Tanker3  Berth2  Segment1
+3   Tanker7  Berth1  Segment2
+4  Tanker10  Berth1  Segment1
+```
+
 ## Conclusion
 
 In this blog, we've demonstrated how to tackle a tanker assignment problem using linear programming with Python's PuLP library. By carefully defining our decision variables, objective function, and constraints, we've developed a model that optimizes tanker assignments to port segments, ensuring efficient utilization of both tanker and segment capacities. This approach can be adapted to various resource allocation problems, showcasing the power and flexibility of linear programming in operational research.
